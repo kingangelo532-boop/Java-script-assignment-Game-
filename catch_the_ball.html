@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catch the Ball</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    padding: 18px; font-family: Arial, sans-serif; color: #f4f7ff;
+    background: linear-gradient(135deg, #10172a, #182c4d);
+  }
+  .game-card {
+    width: min(100%, 520px); padding: 20px; border-radius: 22px;
+    background: #101a2e; box-shadow: 0 18px 50px #0006;
+    border: 1px solid #ffffff18;
+  }
+  h1 { margin: 0 0 6px; text-align: center; font-size: 1.8rem; }
+  .subtitle { text-align: center; color: #b7c6e4; margin: 0 0 18px; }
+  .stats { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .stat { flex: 1; text-align: center; padding: 10px; border-radius: 12px; background: #1b2943; }
+  .stat strong { display: block; font-size: 1.35rem; margin-top: 3px; }
+  canvas { width: 100%; display: block; border-radius: 14px; background: #081326; border: 1px solid #ffffff1c; touch-action: none; }
+  .controls { display: flex; gap: 12px; margin-top: 14px; }
+  button {
+    flex: 1; padding: 13px 10px; border: 0; border-radius: 12px;
+    color: #081326; background: #72e5c2; font-size: 1rem; font-weight: 700; cursor: pointer;
+  }
+  button.secondary { background: #d4def5; }
+  button:active { transform: scale(.98); }
+  .hint { text-align: center; color: #b7c6e4; font-size: .9rem; line-height: 1.5; margin: 13px 0 0; }
+</style>
+</head>
+<body>
+<main class="game-card">
+  <h1>🏀 Catch the Ball</h1>
+  <p class="subtitle">Move your basket and catch as many balls as you can!</p>
+  <section class="stats" aria-live="polite">
+    <div class="stat">Score<strong id="score">0</strong></div>
+    <div class="stat">Misses<strong id="misses">0 / 3</strong></div>
+    <div class="stat">Best<strong id="best">0</strong></div>
+  </section>
+  <canvas id="game" width="480" height="560" aria-label="Game area"></canvas>
+  <div class="controls">
+    <button id="left" class="secondary" aria-label="Move left">⬅ Left</button>
+    <button id="start">Start game</button>
+    <button id="right" class="secondary" aria-label="Move right">Right ➡</button>
+  </div>
+  <p class="hint">Computer: use ← and → arrow keys.<br>Phone/tablet: hold the Left and Right buttons.</p>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const missesEl = document.getElementById('misses');
+  const bestEl = document.getElementById('best');
+  const startBtn = document.getElementById('start');
+  const W = canvas.width, H = canvas.height;
+  const player = { x: W / 2 - 42, y: H - 54, w: 84, h: 18, speed: 6.5 };
+  let balls = [], score = 0, misses = 0, best = 0, running = false;
+  let leftHeld = false, rightHeld = false, spawnTimer = 0, lastTime = 0, animationId = null;
+
+  function reset() {
+    score = 0; misses = 0; balls = []; spawnTimer = 0;
+    player.x = W / 2 - player.w / 2;
+    running = true; lastTime = 0; startBtn.textContent = 'Restart game';
+    updateStats();
+    if (animationId !== null) cancelAnimationFrame(animationId);
+    animationId = requestAnimationFrame(loop);
+  }
+  function updateStats() {
+    scoreEl.textContent = score;
+    missesEl.textContent = `${misses} / 3`;
+    bestEl.textContent = best;
+  }
+  function spawnBall() {
+    const radius = 11 + Math.random() * 5;
+    balls.push({ x: radius + Math.random() * (W - radius * 2), y: -radius, r: radius, speed: 2.4 + Math.min(score * 0.09, 3) });
+  }
+  function drawBackground() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#081326'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#ffffff0b'; ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  }
+  function drawPlayer() {
+    ctx.fillStyle = '#72e5c2';
+    ctx.beginPath(); ctx.roundRect(player.x, player.y, player.w, player.h, 8); ctx.fill();
+    ctx.fillStyle = '#b7fff0';
+    ctx.fillRect(player.x + 9, player.y + 4, player.w - 18, 3);
+  }
+  function drawBall(ball) {
+    const gradient = ctx.createRadialGradient(ball.x - 4, ball.y - 5, 2, ball.x, ball.y, ball.r);
+    gradient.addColorStop(0, '#fff4b0'); gradient.addColorStop(1, '#ff9f43');
+    ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#a95020'; ctx.lineWidth = 2; ctx.stroke();
+  }
+  function overlay(title, message) {
+    ctx.fillStyle = '#030916c9'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px Arial'; ctx.fillText(title, W / 2, H / 2 - 22);
+    ctx.fillStyle = '#d4def5'; ctx.font = '17px Arial'; ctx.fillText(message, W / 2, H / 2 + 15);
+  }
+  function loop(timestamp) {
+    if (!running) return;
+    const dt = lastTime ? Math.min((timestamp - lastTime) / 16.67, 2) : 1;
+    lastTime = timestamp;
+    if (leftHeld) player.x -= player.speed * dt;
+    if (rightHeld) player.x += player.speed * dt;
+    player.x = Math.max(0, Math.min(W - player.w, player.x));
+
+    spawnTimer += dt;
+    const spawnEvery = Math.max(25, 58 - score * 0.7);
+    if (spawnTimer >= spawnEvery) { spawnBall(); spawnTimer = 0; }
+
+    drawBackground();
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i]; b.y += b.speed * dt; drawBall(b);
+      const caught = b.y + b.r >= player.y && b.y - b.r <= player.y + player.h &&
+        b.x >= player.x - b.r * 0.3 && b.x <= player.x + player.w + b.r * 0.3;
+      if (caught) { balls.splice(i, 1); score++; best = Math.max(best, score); updateStats(); }
+      else if (b.y - b.r > H) {
+        balls.splice(i, 1); misses++; updateStats();
+        if (misses >= 3) { running = false; break; }
+      }
+    }
+    drawPlayer();
+    if (!running) {
+      overlay('Game Over!', `Final score: ${score}  •  Press Restart`);
+      startBtn.textContent = 'Play again';
+      return;
+    }
+    animationId = requestAnimationFrame(loop);
+  }
+  function holdButton(id, setHeld) {
+    const el = document.getElementById(id);
+    el.addEventListener('pointerdown', e => { e.preventDefault(); setHeld(true); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(type => el.addEventListener(type, () => setHeld(false)));
+  }
+  holdButton('left', value => leftHeld = value);
+  holdButton('right', value => rightHeld = value);
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') { leftHeld = true; e.preventDefault(); }
+    if (e.key === 'ArrowRight') { rightHeld = true; e.preventDefault(); }
+    if (e.key === ' ' && !running) reset();
+  });
+  window.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft') leftHeld = false;
+    if (e.key === 'ArrowRight') rightHeld = false;
+  });
+  startBtn.addEventListener('click', reset);
+
+  drawBackground(); drawPlayer();
+  ctx.fillStyle = '#d4def5'; ctx.textAlign = 'center';
+  ctx.font = 'bold 24px Arial'; ctx.fillText('Ready to play?', W / 2, H / 2 - 10);
+  ctx.font = '16px Arial'; ctx.fillText('Press Start game', W / 2, H / 2 + 22);
+  updateStats();
+})();
+</script>
+</body>
+</html>
